@@ -68,7 +68,6 @@ class Incrementalkmeans(BaseEstimator, ClassifierMixin):
         return closest_cluster
 
 
-
 # Metryki użyte do ewaluacji
 metrics = [fowlkes_mallows_score, adjusted_mutual_info_score]
 
