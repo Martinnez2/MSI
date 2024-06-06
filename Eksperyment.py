@@ -9,6 +9,8 @@ from scipy.spatial import distance
 from Minibatch import Minibatchnew
 from Birchnew import Birchnew
 import sys
+from scipy.stats import ttest_ind
+import random
 
 class Incrementalkmeans(BaseEstimator, ClassifierMixin):
     def __init__(self, k, max_iter=100):
@@ -65,7 +67,7 @@ class Incrementalkmeans(BaseEstimator, ClassifierMixin):
 
 
 # ---------------------------------URUCHOMIENIE EKSPERYMENTU---------------------------------
-print("Uruchomienie eksperymentu - wyniki metryk w pliku 'wyniki.txt'")
+print("Uruchomienie eksperymentow - wyniki metryk beda zapisane w pliku odpowiadajacym numer eksperymentu")
 
 # Metryki użyte do ewaluacji
 metrics = [fowlkes_mallows_score, adjusted_mutual_info_score]
@@ -77,47 +79,64 @@ models = [
     ("Minibatch", Minibatchnew(n_clusters=3))
 ]
 
+for experiment in range(1, 11):
+    random_state = 100*experiment  # random_state w zakresie od 100 do 1000 co 100
 
+   # Słownik do przechowywania wyników
+    scores_dict = {}
 
+    # Przetwarzanie każdego modelu
+    for name, model in models:
+        # Inicjalizacja strumienia danych dla każdego modelu
+        stream = StreamGenerator(random_state=random_state, n_chunks=100, chunk_size=100, n_classes=3, n_features=20, n_informative=2,
+                                 n_redundant=0, n_clusters_per_class=1, class_sep=2)
 
-# Słownik do przechowywania wyników
-scores_dict = {}
+        # Inicjalizacja ewaluatora
+        ewaluator = TestThenTrain(metrics, verbose=True)
 
-# Przetwarzanie każdego modelu
-for name, model in models:
-    # Inicjalizacja strumienia danych dla każdego modelu
-    stream = StreamGenerator(random_state=200, n_chunks=100, chunk_size=100, n_classes=3, n_features=20, n_informative=2,
-                             n_redundant=0, n_clusters_per_class=1, class_sep=2)
+        # Przetwarzanie danych za pomocą modelu
+        ewaluator.process(stream, model)
+        scores_dict[name] = ewaluator.scores
 
-    # Inicjalizacja ewaluatora
-    ewaluator = TestThenTrain(metrics,verbose=True)
+    # Zapis wyników do pliku
+    with open(f"wyniki{experiment}.txt", 'w') as f:
+        sys.stdout = f
+        print(f"random_state: {random_state}\n")
 
-    # Przetwarzanie danych za pomocą modelu
-    ewaluator.process(stream, model)
-    scores_dict[name] = ewaluator.scores
+        for name in scores_dict:
+            print(name)
+            print(scores_dict[name])
+            for i, metric in enumerate(metrics):
+                mean_score = np.mean(scores_dict[name][0, :, i])
+                std_score = np.std(scores_dict[name][0, :, i])
+                print(f"{metric.__name__}:")
+                print(f" Srednia: {mean_score}")
+                print(f" Odchylenie standardowe: {std_score}\n")
 
-# Zapis wyników do pliku
-with open("wyniki.txt", 'w') as f:
-    sys.stdout = f
+        # Test t-Studenta
+        for j in range(len(models)):
+            for k in range(j + 1, len(models)):
+                print(f"TEST T-STUDENTA miedzy {models[j][0]} a {models[k][0]}")
+                for i, metric in enumerate(metrics):
+                    t_stat, p_value = ttest_ind(scores_dict[models[j][0]][0, :, i], scores_dict[models[k][0]][0, :, i])
+                    print(f"{metric.__name__}: t = {t_stat}, p = {p_value}")
+                    
+    sys.stdout = sys.__stdout__
+   
+    print(f"Wyniki dla eksperymentu {experiment}")
+    print(f"random_state: {random_state}")
 
-    for name in scores_dict:
-        print(name)
-        print(scores_dict[name])
-        print("fowlkes score")
-        print(np.mean(scores_dict[name][0, :, 0]))
-        print("adjusted mutual score")
-        print(np.mean(scores_dict[name][0, :, 1]))
+    # Wykres wyników
+    fig,ax=plt.subplots(1,2,figsize=(12,4))
 
-# Wykres wyników
-fig,ax=plt.subplots(1,2,figsize=(12,4))
-
-for m, metric in enumerate(metrics):
-    for name in scores_dict:
-        ax[m].plot(scores_dict[name][0, :, m], label=f"{name}")
-    ax[m].set_title(f"{metric.__name__} Scores")
-    ax[m].set_ylim(0, 1)
-    ax[m].set_ylabel('Quality')
-    ax[m].set_xlabel('Chunk')
-    ax[m].legend()
-plt.show()
-plt.tight_layout()
+    for m, metric in enumerate(metrics):
+        for name in scores_dict:
+            ax[m].plot(scores_dict[name][0, :, m], label=f"{name}")
+        ax[m].set_title(f"{metric.__name__} Scores")
+        ax[m].set_ylim(0, 1)
+        ax[m].set_ylabel('Quality')
+        ax[m].set_xlabel('Chunk')
+        ax[m].legend()
+    plt.tight_layout()
+    plt.show()
+    plt.close(fig)
